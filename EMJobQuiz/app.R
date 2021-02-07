@@ -7,6 +7,7 @@ library(shinyjs)
 library(dplyr)
 library(randomForest)
 library(googlesheets4)
+library(shinythemes)
 
 # sheets reauth with specified token and email address
 sheets_auth(
@@ -37,7 +38,7 @@ loadData <- function() {
 }
 
 # Define UI for application
-ui <- fluidPage(
+ui <- fluidPage(theme = shinytheme("sandstone"),
     
     shinyjs::useShinyjs(),
 
@@ -52,9 +53,8 @@ ui <- fluidPage(
             helpText("Number of responses:"),
             textOutput("num_respondents"),
             br(),
-            helpText("Overall accuracy:"),
-            textOutput("accuracy"),
-            helpText("%")
+            helpText("Overall percent accuracy:"),
+            textOutput("accuracy")
         ),
 
         # Main body of quiz
