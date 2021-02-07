@@ -6,8 +6,33 @@ library(shiny)
 library(shinyjs)
 library(dplyr)
 library(randomForest)
+library(googledrive)
 
-working_data <- read.csv("answerdb.csv", stringsAsFactors = TRUE)
+drive_auth(cache = ".secret")
+
+outputDir <- "Responses"
+
+saveData <- function(data) {
+    # Create a unique file name
+    fileName <- sprintf("%s_%s.csv", as.integer(Sys.time()), digest::digest(data))
+    # Write the file to the local system
+    write.csv(
+        x = data,
+        file = file.path(outputDir, fileName), 
+        row.names = FALSE, quote = TRUE
+    )
+}
+
+loadData <- function() {
+    # Read all the files into a list
+    files <- list.files(outputDir, full.names = TRUE)
+    data <- lapply(files, read.csv, stringsAsFactors = TRUE) 
+    # Concatenate all data together into one data.frame
+    data <- do.call(rbind, data)
+    data
+}
+
+working_data <- loadData()
 owner_predictor_data <- working_data %>%
     select(-Guess.Ownership) %>%
     select(-Actual.Structure) %>%
@@ -17,7 +42,7 @@ structure_predictor_data <- working_data %>%
     select(-Guess.Structure)
 structure_model <- randomForest(Actual.Structure ~ ., data = structure_predictor_data, ntree = 2000)
 
-# Define UI for application that draws a histogram
+# Define UI for application
 ui <- fluidPage(
     
     shinyjs::useShinyjs(),
@@ -42,7 +67,7 @@ ui <- fluidPage(
                 selectInput("admin", "Do you have an administrative role (director or higher)?", choices = c('No', 'Yes')),
                 selectInput("gender", "Select your gender:", choices = c('Male', 'Female', 'Other'))
             ),
-           inputPanel(
+           inputPanel(column(12,
                helpText("For the following questions, 1 = Strongly DISAGREE and 5 = Strongly AGREE."),
                br(),
                sliderInput("q1", "I am happy.", min = 1, max = 5, value = 3, step = 1),
@@ -63,7 +88,8 @@ ui <- fluidPage(
                br(),
                sliderInput("q9", "I am secure in my career.", min = 1, max = 5, value = 3, step = 1),
                br()
-           ),
+           )),
+           br(),
            actionButton("submit_button", "SUBMIT"),
            br(),
            br()
@@ -95,11 +121,9 @@ ui <- fluidPage(
            shinyjs::hidden(
                div(id = "newanswer",
                    wellPanel(
-               helpText("Select the best description of your actual job:"),
+               selectInput("changedanswer", "Select the best description of your actual job:", choices = unique(as.character(working_data$Actual.Structure))),
                br(),
-               actionButton("actual_1", textOutput("unguessed1")),
-               actionButton("actual_2", textOutput("unguessed2")),
-               actionButton("actual_3", textOutput("unguessed3"))
+               actionButton("submit_change", "SUBMIT")
            )
                )
            ),
@@ -113,36 +137,9 @@ ui <- fluidPage(
     )
 )
 
-# Define server logic required to draw a histogram
+# Define server logic
 server <- function(input, output) {
 
-    #new_dataframed <- eventReactive(input$submit_button, {
-        #input_for_prediction <- data.frame(Happy = input$q1,
-                   #Career = input$q2,
-                   #Growth = input$q3,
-                   #Worth = input$q4,
-                   #Fairly = input$q5,
-                   #Valued = input$q6,
-                   #Optimistic = input$q7,
-                   #Voice = input$q8,
-                   #Secure = input$q9,
-                   #Gender = input$gender,
-                   #Admin = input$admin,
-                   #Actual.Ownership = NA,
-                   #Guess.Ownership = NA,
-                   #Actual.Structure = NA,
-                   #Guess.Structure = NA)
-        #input_for_prediction[,"Gender"] <- as.factor(input_for_prediction[,"Gender"])
-        #input_for_prediction[,"Admin"] <- as.factor(input_for_prediction[,"Admin"])
-        #input_for_prediction[,"Actual.Ownership"] <- as.factor(input_for_prediction[,"Actual.Ownership"])
-        #input_for_prediction[,"Guess.Ownership"] <- as.factor(input_for_prediction[,"Guess.Ownership"])
-        #input_for_prediction[,"Actual.Structure"] <- as.factor(input_for_prediction[,"Actual.Structure"])
-        #input_for_prediction[,"Guess.Structure"] <- as.factor(input_for_prediction[,"Guess.Structure"])
-        #joined_input <- rbind(input_for_prediction, working_data)
-        #joined_input[1,"Guess.Ownership"] <- predict(owner_model, newdata = joined_input[1,], type = "response")[[1]]
-        #joined_input
-    #})
-    
     v <- reactiveValues()
     v$initial <- data.frame()
     v$full <- data.frame()
@@ -202,44 +199,25 @@ server <- function(input, output) {
     
     output$structure_answer <- reactive(v$full[1,"Guess.Structure"])
     
-    #observeEvent(input$correct_answer, {
-        #temp_newdata <- new_dataframed()
-        #temp_newdata[1,"Actual"] <- temp_newdata[1,"Guess"]
-        #write.csv(temp_newdata, "answerdb.csv", row.names = FALSE)
-        #new_dataframed <- data.frame()
-        #shinyjs::toggle(id = "displayguess", anim = TRUE)
-        #shinyjs::toggle(id = "thanks_message", anim = TRUE)
-    #})
+    #This part handles the user input with regards to employment structure.
     
-    observeEvent(input$actual_1, {
-        temp_newdata <- new_dataframed()
-        temp_unguessed <- unique(as.character(new_dataframed()$Guess))
-        temp_unguessed <- temp_unguessed[!temp_unguessed %in% as.character(new_dataframed()[1,"Guess"])]
-        temp_newdata[1,"Actual"] <- temp_unguessed[1]
-        write.csv(temp_newdata, "answerdb.csv", row.names = FALSE)
-        new_dataframed <- data.frame()
-        shinyjs::toggle(id = "newanswer", anim = TRUE)
+    observeEvent(input$correct_structure_answer, {
+        v$full[1,"Actual.Structure"] <- v$full[1,"Guess.Structure"]
+        temp_frame <- as_tibble(v$full)
+        saveData(temp_frame[1,])
+        shinyjs::toggle(id = "displayguess", anim = TRUE)
         shinyjs::toggle(id = "thanks_message", anim = TRUE)
     })
     
-    observeEvent(input$actual_2, {
-        temp_newdata <- new_dataframed()
-        temp_unguessed <- unique(as.character(new_dataframed()$Guess))
-        temp_unguessed <- temp_unguessed[!temp_unguessed %in% as.character(new_dataframed()[1,"Guess"])]
-        temp_newdata[1,"Actual"] <- temp_unguessed[2]
-        write.csv(temp_newdata, "answerdb.csv", row.names = FALSE)
-        new_dataframed <- data.frame()
+    observeEvent(input$wrong_structure_answer, {
+        shinyjs::toggle(id = "displayguess", anim = TRUE)
         shinyjs::toggle(id = "newanswer", anim = TRUE)
-        shinyjs::toggle(id = "thanks_message", anim = TRUE)
     })
     
-    observeEvent(input$actual_3, {
-        temp_newdata <- new_dataframed()
-        temp_unguessed <- unique(as.character(new_dataframed()$Guess))
-        temp_unguessed <- temp_unguessed[!temp_unguessed %in% as.character(new_dataframed()[1,"Guess"])]
-        temp_newdata[1,"Actual"] <- temp_unguessed[3]
-        write.csv(temp_newdata, "answerdb.csv", row.names = FALSE)
-        new_dataframed <- data.frame()
+    observeEvent(input$submit_change, {
+        v$full[1,"Actual.Structure"] <- input$changedanswer
+        temp_frame <- as_tibble(v$full)
+        saveData(temp_frame[1,])
         shinyjs::toggle(id = "newanswer", anim = TRUE)
         shinyjs::toggle(id = "thanks_message", anim = TRUE)
     })
