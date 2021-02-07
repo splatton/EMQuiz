@@ -6,9 +6,13 @@ library(shiny)
 library(shinyjs)
 library(dplyr)
 library(randomForest)
-library(googledrive)
+library(googlesheets4)
 
-drive_auth(cache = ".secret")
+# sheets reauth with specified token and email address
+sheets_auth(
+    cache = ".secrets",
+    email = "spltt.tlb@gmail.com"
+)
 
 outputDir <- "Responses"
 
@@ -32,16 +36,6 @@ loadData <- function() {
     data
 }
 
-working_data <- loadData()
-owner_predictor_data <- working_data %>%
-    select(-Guess.Ownership) %>%
-    select(-Actual.Structure) %>%
-    select(-Guess.Structure)
-owner_model <- randomForest(Actual.Ownership ~ ., data = owner_predictor_data, ntree = 2000)
-structure_predictor_data <- working_data %>%
-    select(-Guess.Structure)
-structure_model <- randomForest(Actual.Structure ~ ., data = structure_predictor_data, ntree = 2000)
-
 # Define UI for application
 ui <- fluidPage(
     
@@ -55,9 +49,12 @@ ui <- fluidPage(
         sidebarPanel(
             helpText("Toggle the slider bars and click SUBMIT when you are done to see what type of emergency medicine job we think you have! Make sure to tell us if we were right or wrong at the bottom!"),
             br(),
-            helpText("Number of responses:", nrow(working_data)),
+            helpText("Number of responses:"),
+            textOutput("num_respondents"),
             br(),
-            helpText("Overall accuracy:", (mean(working_data$Actual.Ownership == working_data$Guess.Ownership)+mean(working_data$Actual.Structure == working_data$Guess.Structure))*50, "%")
+            helpText("Overall accuracy:"),
+            textOutput("accuracy"),
+            helpText("%")
         ),
 
         # Main body of quiz
@@ -121,7 +118,7 @@ ui <- fluidPage(
            shinyjs::hidden(
                div(id = "newanswer",
                    wellPanel(
-               selectInput("changedanswer", "Select the best description of your actual job:", choices = unique(as.character(working_data$Actual.Structure))),
+               selectInput("changedanswer", "Select the best description of your actual job:", choices = c("Democratic Group", "Independent or Locums", "CMG", "Resident", "Government", "Academic", "Hospital Employee")),
                br(),
                actionButton("submit_change", "SUBMIT")
            )
@@ -142,6 +139,7 @@ server <- function(input, output) {
 
     v <- reactiveValues()
     v$initial <- data.frame()
+    v$old <- as.data.frame(unclass(read_sheet("https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing")))
     v$full <- data.frame()
     
     observeEvent(input$submit_button, {
@@ -166,13 +164,30 @@ server <- function(input, output) {
         v$initial[,"Guess.Ownership"] <- as.factor(v$initial[,"Guess.Ownership"])
         v$initial[,"Actual.Structure"] <- as.factor(v$initial[,"Actual.Structure"])
         v$initial[,"Guess.Structure"] <- as.factor(v$initial[,"Guess.Structure"])
-        v$full <- rbind(v$initial, working_data)
+        v$old <- as.data.frame(unclass(read_sheet("https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing")))
+        v$full <- rbind(v$initial, v$old)
+        owner_predictor_data <- v$old %>%
+            select(-Guess.Ownership) %>%
+            select(-Actual.Structure) %>%
+            select(-Guess.Structure)
+        owner_model <- randomForest(Actual.Ownership ~ ., data = owner_predictor_data, ntree = 2000)
+        structure_predictor_data <- v$old %>%
+            select(-Guess.Structure)
+        v$structure_model <- randomForest(Actual.Structure ~ ., data = structure_predictor_data, ntree = 2000)
         v$full[1,"Guess.Ownership"] <- predict(owner_model, newdata = v$full[1,], type = "response")[[1]]
     })
     
     observeEvent(input$submit_button, {
         shinyjs::toggle(id = "quiz_form", anim = TRUE)
         shinyjs::toggle(id = "displayguess", anim = TRUE)
+    })
+    
+    output$num_respondents <- reactive({
+        nrow(v$old)
+    })
+    
+    output$accuracy <- reactive({
+        (mean(v$old$Actual.Ownership == v$old$Guess.Ownership)+mean(v$old$Actual.Structure == v$old$Guess.Structure))*50
     })
     
     output$owner_answer <- eventReactive(input$submit_button, {
@@ -185,14 +200,14 @@ server <- function(input, output) {
         shinyjs::toggle(id = "ownerguess", anim = TRUE)
         shinyjs::toggle(id = "structureguess", anim = TRUE)
         v$full[1,"Actual.Ownership"] <- levels(v$full$Guess.Ownership)[!levels(v$full$Guess.Ownership) %in% v$full[1,"Guess.Ownership"]]
-        v$full[1,"Guess.Structure"] <- predict(structure_model, newdata = v$full[1,], type = "response")[[1]]
+        v$full[1,"Guess.Structure"] <- predict(v$structure_model, newdata = v$full[1,], type = "response")[[1]]
     })
     
     observeEvent(input$correct_answer, {
         shinyjs::toggle(id = "ownerguess", anim = TRUE)
         shinyjs::toggle(id = "structureguess", anim = TRUE)
         v$full[1,"Actual.Ownership"] <- v$full[1,"Guess.Ownership"]
-        v$full[1,"Guess.Structure"] <- predict(structure_model, newdata = v$full[1,], type = "response")[[1]]
+        v$full[1,"Guess.Structure"] <- predict(v$structure_model, newdata = v$full[1,], type = "response")[[1]]
     })
     
     #This next part takes the output from the ownership question and uses it to guess the employment structure.
@@ -203,8 +218,8 @@ server <- function(input, output) {
     
     observeEvent(input$correct_structure_answer, {
         v$full[1,"Actual.Structure"] <- v$full[1,"Guess.Structure"]
-        temp_frame <- as_tibble(v$full)
-        saveData(temp_frame[1,])
+        temp_frame <- v$full
+        sheet_append("https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing", temp_frame[1,])
         shinyjs::toggle(id = "displayguess", anim = TRUE)
         shinyjs::toggle(id = "thanks_message", anim = TRUE)
     })
@@ -216,8 +231,8 @@ server <- function(input, output) {
     
     observeEvent(input$submit_change, {
         v$full[1,"Actual.Structure"] <- input$changedanswer
-        temp_frame <- as_tibble(v$full)
-        saveData(temp_frame[1,])
+        temp_frame <- v$full
+        sheet_append("https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing", temp_frame[1,])
         shinyjs::toggle(id = "newanswer", anim = TRUE)
         shinyjs::toggle(id = "thanks_message", anim = TRUE)
     })
