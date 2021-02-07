@@ -8,6 +8,7 @@ library(dplyr)
 library(randomForest)
 library(googlesheets4)
 library(shinythemes)
+library(ggplot2)
 
 # sheets reauth with specified token and email address
 sheets_auth(
@@ -37,6 +38,16 @@ loadData <- function() {
     data
 }
 
+accuracy_over_time_graph <- function(data) {
+    temp_frame <- data.frame(Responses = NA, Accuracy = NA)
+    for (i in 1:nrow(data)) {
+        temp_frame[i,"Responses"] <- i
+        temp_analysis_data <- data[1:i,]
+        temp_frame[i,"Accuracy"] <- (mean(data$Actual.Ownership == data$Guess.Ownership)+mean(data$Actual.Structure == data$Guess.Structure))*50
+    }
+    ggplot(temp_frame, aes(x = Responses, y = Accuracy)) + geom_line() + ggtitle("Accuracy by Number of Responses")
+}
+
 # Define UI for application
 ui <- fluidPage(theme = shinytheme("sandstone"),
     
@@ -54,7 +65,9 @@ ui <- fluidPage(theme = shinytheme("sandstone"),
             textOutput("num_respondents"),
             br(),
             helpText("Overall percent accuracy:"),
-            textOutput("accuracy")
+            textOutput("accuracy"),
+            br(),
+            tags$a(href = "https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing", "SEE THE DATA")
         ),
 
         # Main body of quiz
