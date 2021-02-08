@@ -39,13 +39,13 @@ loadData <- function() {
 }
 
 accuracy_over_time_graph <- function(data) {
-    temp_frame <- data.frame(Responses = NA, Accuracy = NA)
+    temp_frame <- data.frame(Responses = rep(NA, times = nrow(data)), Accuracy = rep(NA, times = nrow(data)))
     for (i in 1:nrow(data)) {
         temp_frame[i,"Responses"] <- i
         temp_analysis_data <- data[1:i,]
-        temp_frame[i,"Accuracy"] <- (mean(data$Actual.Ownership == data$Guess.Ownership)+mean(data$Actual.Structure == data$Guess.Structure))*50
+        temp_frame[i,"Accuracy"] <- (mean(temp_analysis_data$Actual.Ownership == temp_analysis_data$Guess.Ownership)+mean(temp_analysis_data$Actual.Structure == temp_analysis_data$Guess.Structure))*50
     }
-    ggplot(temp_frame, aes(x = Responses, y = Accuracy)) + geom_line() + ggtitle("Accuracy by Number of Responses")
+    ggplot(temp_frame, aes(x = Responses, y = Accuracy)) + geom_line(size = 1) + ggtitle("Accuracy by Number of Responses") + theme(panel.background = element_blank())
 }
 
 # Define UI for application
@@ -66,6 +66,8 @@ ui <- fluidPage(theme = shinytheme("sandstone"),
             br(),
             helpText("Overall percent accuracy:"),
             textOutput("accuracy"),
+            br(),
+            plotOutput("accuracy_plot"),
             br(),
             tags$a(href = "https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing", "SEE THE DATA")
         ),
@@ -248,6 +250,10 @@ server <- function(input, output) {
         sheet_append("https://docs.google.com/spreadsheets/d/1MlF88m8-BCIdwuMX_Ooc04Vm6_U-nUExusrs2a02G8A/edit?usp=sharing", temp_frame[1,])
         shinyjs::toggle(id = "newanswer", anim = TRUE)
         shinyjs::toggle(id = "thanks_message", anim = TRUE)
+    })
+    
+    output$accuracy_plot <- renderPlot({
+        accuracy_over_time_graph(v$old)
     })
     
 }
